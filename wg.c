@@ -122,26 +122,24 @@ static void wg_chain_kdf_block(const struct wg_context* ctx, const struct wg_kdf
 	output->material[WG_HASH_LENGTH] = input->material[WG_HASH_LENGTH] + 1;
 }
 
-static void wg_derive_public_key(const struct wg_private_key* private_key, struct wg_public_key* output) {
-	crypto_scalarmult_base(output->material, private_key->material);
+static void wg_derive_public_key(const struct wg_private_key* private_key, struct wg_public_key* public_key) {
+	crypto_scalarmult_base(public_key->material, private_key->material);
 }
 
-static int wg_derive_dh_secret(const struct wg_private_key* private_key, const struct wg_public_key* public_key, struct wg_secret* output) {
-	return crypto_scalarmult(output->material, private_key->material, public_key->material);
+static int wg_derive_dh_secret(const struct wg_private_key* private_key, const struct wg_public_key* public_key, struct wg_secret* secret) {
+	return crypto_scalarmult(secret->material, private_key->material, public_key->material);
 }
 
-static int wg_derive_dh_secret_from_reply(const struct wg_private_key* private_key, const struct wg_handshake_response* resp, struct wg_secret* output) {
-	return crypto_scalarmult(output->material, private_key->material, resp->msg_ephemeral);
+static int wg_derive_dh_secret_from_reply(const struct wg_private_key* private_key, const struct wg_handshake_response* resp, struct wg_secret* secret) {
+	return crypto_scalarmult(secret->material, private_key->material, resp->msg_ephemeral);
 }
 
 static void wg_aead_encrypt(
 		const struct wg_kdf_key* key, uint64_t counter,
 		const uint8_t* plaintext, size_t plaintext_size,
 		const uint8_t* authtext, size_t authtext_size,
-		uint8_t* output, size_t output_size
+		uint8_t* ciphertext, unsigned long long ciphertext_size
 ) {
-	unsigned long long ciphertext_size = output_size;
-
 	struct wg_nonce nonce = {
 		.zero = 0,
 		.counter_lo = htole32(counter & 0xFFFFFFFF),
@@ -149,7 +147,7 @@ static void wg_aead_encrypt(
 	};
 
 	crypto_aead_chacha20poly1305_ietf_encrypt(
-			output, &ciphertext_size,
+			ciphertext, &ciphertext_size,
 			plaintext, plaintext_size,
 			authtext, authtext_size,
 			NULL,
@@ -159,12 +157,10 @@ static void wg_aead_encrypt(
 
 static int wg_aead_decrypt(
 		const struct wg_kdf_key* key, uint64_t counter,
-		const uint8_t* ciphertext, size_t ciphertext_size,
+		uint8_t* plaintext, unsigned long long plaintext_size,
 		const uint8_t* authtext, size_t authtext_size,
-		uint8_t* output, size_t output_size
+		const uint8_t* ciphertext, size_t ciphertext_size
 ) {
-	unsigned long long plaintext_size = output_size;
-
 	struct wg_nonce nonce = {
 		.zero = 0,
 		.counter_lo = htole32(counter & 0xFFFFFFFF),
@@ -172,7 +168,7 @@ static int wg_aead_decrypt(
 	};
 
 	return crypto_aead_chacha20poly1305_ietf_decrypt(
-			output, &plaintext_size,
+			plaintext, &plaintext_size,
 			NULL,
 			ciphertext, ciphertext_size,
 			authtext, authtext_size,
@@ -304,9 +300,9 @@ int wg_verify_handshake(
 
 	int err = wg_aead_decrypt(
 			&ctx->encryption_key, 0,
-			resp->msg_empty, AEAD_LENGTH(0),
+			NULL, 0,
 			ctx->chaining_hash, WG_HASH_LENGTH,
-			NULL, 0
+			resp->msg_empty, AEAD_LENGTH(0)
 	);
 
 	if (err) return -1;
