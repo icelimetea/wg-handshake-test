@@ -42,6 +42,11 @@ struct wg_context {
 
 	alignas(SIMD_ALIGNMENT) uint8_t	key_ipad[WG_HASH_BLOCK_LENGTH + 1];
 	alignas(SIMD_ALIGNMENT) uint8_t	key_opad[WG_HASH_BLOCK_LENGTH];
+
+	struct wg_secret		dh_secret;
+
+	struct wg_kdf_key		temporary_key;
+	struct wg_kdf_key		encryption_key;
 };
 
 struct __attribute__((packed)) wg_nonce {
@@ -97,6 +102,7 @@ int wg_create_handshake(
 int wg_verify_handshake(
 		struct wg_context* ctx,
 		const struct wg_private_key* own_static_private,
+		const struct wg_secret* preshared_key,
 		const struct wg_handshake_response* resp
 );
 

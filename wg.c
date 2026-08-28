@@ -130,6 +130,10 @@ static int wg_derive_dh_secret(const struct wg_private_key* private_key, const s
 	return crypto_scalarmult(output->material, private_key->material, public_key->material);
 }
 
+static int wg_derive_dh_secret_from_reply(const struct wg_private_key* private_key, const struct wg_handshake_response* resp, struct wg_secret* output) {
+	return crypto_scalarmult(output->material, private_key->material, resp->msg_ephemeral);
+}
+
 static void wg_aead_encrypt(
 		const struct wg_kdf_key* key, uint64_t counter,
 		const uint8_t* plaintext, size_t plaintext_size,
@@ -149,6 +153,29 @@ static void wg_aead_encrypt(
 			plaintext, plaintext_size,
 			authtext, authtext_size,
 			NULL,
+			(const uint8_t*) &nonce, key->material
+	);
+}
+
+static int wg_aead_decrypt(
+		const struct wg_kdf_key* key, uint64_t counter,
+		const uint8_t* ciphertext, size_t ciphertext_size,
+		const uint8_t* authtext, size_t authtext_size,
+		uint8_t* output, size_t output_size
+) {
+	unsigned long long plaintext_size = output_size;
+
+	struct wg_nonce nonce = {
+		.zero = 0,
+		.counter_lo = htole32(counter & 0xFFFFFFFF),
+		.counter_hi = htole32(counter >> 32)
+	};
+
+	return crypto_aead_chacha20poly1305_ietf_decrypt(
+			output, &plaintext_size,
+			NULL,
+			ciphertext, ciphertext_size,
+			authtext, authtext_size,
 			(const uint8_t*) &nonce, key->material
 	);
 }
@@ -204,9 +231,6 @@ int wg_create_handshake(
 		const struct wg_public_key* peer_static_public,
 		struct wg_handshake_request* req
 ) {
-	struct wg_secret dh_secret;
-	struct wg_kdf_key encryption_key;
-
 	struct wg_public_key own_static_public;
 	struct wg_timestamp timestamp;
 
@@ -214,16 +238,16 @@ int wg_create_handshake(
 
 	// Mixing static key
 
-	if (wg_derive_dh_secret(&ctx->own_ephemeral_private, peer_static_public, &dh_secret))
+	if (wg_derive_dh_secret(&ctx->own_ephemeral_private, peer_static_public, &ctx->dh_secret))
 		return -1;
 
-	wg_chain_kdf(ctx, (const uint8_t*) &dh_secret, WG_SHARED_SECRET_LENGTH);
-	wg_chain_kdf_block(ctx, &ctx->chaining_key, &encryption_key);
+	wg_chain_kdf(ctx, (const uint8_t*) &ctx->dh_secret, WG_SHARED_SECRET_LENGTH);
+	wg_chain_kdf_block(ctx, &ctx->chaining_key, &ctx->encryption_key);
 
 	wg_derive_public_key(own_static_private, &own_static_public);
 
 	wg_aead_encrypt(
-			&encryption_key, 0,
+			&ctx->encryption_key, 0,
 			(const uint8_t*) &own_static_public, WG_PUBLIC_KEY_LENGTH,
 			ctx->chaining_hash, WG_HASH_LENGTH,
 			req->msg_static, AEAD_LENGTH(WG_PUBLIC_KEY_LENGTH)
@@ -233,16 +257,16 @@ int wg_create_handshake(
 
 	// Mixing timestamp
 
-	if (wg_derive_dh_secret(own_static_private, peer_static_public, &dh_secret))
+	if (wg_derive_dh_secret(own_static_private, peer_static_public, &ctx->dh_secret))
 		return -1;
 
-	wg_chain_kdf(ctx, (const uint8_t*) &dh_secret, WG_SHARED_SECRET_LENGTH);
-	wg_chain_kdf_block(ctx, &ctx->chaining_key, &encryption_key);
+	wg_chain_kdf(ctx, (const uint8_t*) &ctx->dh_secret, WG_SHARED_SECRET_LENGTH);
+	wg_chain_kdf_block(ctx, &ctx->chaining_key, &ctx->encryption_key);
 
 	wg_create_timestamp(&timestamp);
 
 	wg_aead_encrypt(
-			&encryption_key, 0,
+			&ctx->encryption_key, 0,
 			(const uint8_t*) &timestamp, WG_TIMESTAMP_LENGTH,
 			ctx->chaining_hash, WG_HASH_LENGTH,
 			req->msg_timestamp, AEAD_LENGTH(WG_TIMESTAMP_LENGTH)
@@ -256,5 +280,38 @@ int wg_create_handshake(
 int wg_verify_handshake(
 		struct wg_context* ctx,
 		const struct wg_private_key* own_static_private,
+		const struct wg_secret* preshared_key,
 		const struct wg_handshake_response* resp
-);
+) {
+	wg_chain_kdf(ctx, resp->msg_ephemeral, WG_PUBLIC_KEY_LENGTH);
+	wg_chain_hash(ctx, resp->msg_ephemeral, WG_PUBLIC_KEY_LENGTH);
+
+	if (wg_derive_dh_secret_from_reply(&ctx->own_ephemeral_private, resp, &ctx->dh_secret))
+		return -1;
+
+	wg_chain_kdf(ctx, (const uint8_t*) &ctx->dh_secret, WG_SHARED_SECRET_LENGTH);
+
+	if (wg_derive_dh_secret_from_reply(own_static_private, resp, &ctx->dh_secret))
+		return -1;
+
+	wg_chain_kdf(ctx, (const uint8_t*) &ctx->dh_secret, WG_SHARED_SECRET_LENGTH);
+
+	wg_chain_kdf(ctx, (const uint8_t*) preshared_key, WG_SHARED_SECRET_LENGTH);
+	wg_chain_kdf_block(ctx, &ctx->chaining_key, &ctx->temporary_key);
+	wg_chain_kdf_block(ctx, &ctx->temporary_key, &ctx->encryption_key);
+
+	wg_chain_hash(ctx, (const uint8_t*) &ctx->temporary_key, WG_HASH_LENGTH);
+
+	int err = wg_aead_decrypt(
+			&ctx->encryption_key, 0,
+			resp->msg_empty, AEAD_LENGTH(0),
+			ctx->chaining_hash, WG_HASH_LENGTH,
+			NULL, 0
+	);
+
+	if (err) return -1;
+
+	wg_chain_hash(ctx, resp->msg_empty, AEAD_LENGTH(0));
+
+	return 0;
+}
