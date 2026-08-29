@@ -279,6 +279,9 @@ int wg_verify_handshake(
 		const struct wg_secret* preshared_key,
 		const struct wg_handshake_response* resp
 ) {
+	if (ctx->sender_id != le32toh(resp->receiver_id))
+		return -1;
+
 	wg_chain_kdf(ctx, resp->msg_ephemeral, WG_PUBLIC_KEY_LENGTH);
 	wg_chain_hash(ctx, resp->msg_ephemeral, WG_PUBLIC_KEY_LENGTH);
 
