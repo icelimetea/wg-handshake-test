@@ -36,14 +36,13 @@ struct wg_context {
 	uint32_t			sender_id;
 
 	struct wg_private_key		own_ephemeral_private;
-
-	alignas(SIMD_ALIGNMENT) uint8_t	chaining_hash[WG_HASH_LENGTH];
-	struct wg_kdf_key		chaining_key;
+	struct wg_secret		dh_secret;
 
 	alignas(SIMD_ALIGNMENT) uint8_t	key_ipad[WG_HASH_BLOCK_LENGTH + 1];
 	alignas(SIMD_ALIGNMENT) uint8_t	key_opad[WG_HASH_BLOCK_LENGTH];
 
-	struct wg_secret		dh_secret;
+	alignas(SIMD_ALIGNMENT) uint8_t	chaining_hash[WG_HASH_LENGTH];
+	struct wg_kdf_key		chaining_key;
 
 	struct wg_kdf_key		temporary_key;
 	struct wg_kdf_key		encryption_key;
