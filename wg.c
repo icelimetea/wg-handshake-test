@@ -42,12 +42,12 @@ static void wg_init_constants(void) {
 
 	blake2s_init(&hash_state, WG_HASH_LENGTH);
 	blake2s_update(&hash_state, CONSTRUCTION, sizeof(CONSTRUCTION));
-	blake2s_final(&hash_state, INITIAL_CHAINING_HASH, WG_HASH_LENGTH);
+	blake2s_final(&hash_state, INITIAL_CHAINING_KEY, WG_HASH_LENGTH);
 
 	blake2s_init(&hash_state, WG_HASH_LENGTH);
-	blake2s_update(&hash_state, INITIAL_CHAINING_HASH, WG_HASH_LENGTH);
+	blake2s_update(&hash_state, INITIAL_CHAINING_KEY, WG_HASH_LENGTH);
 	blake2s_update(&hash_state, IDENTIFIER, sizeof(IDENTIFIER));
-	blake2s_final(&hash_state, INITIAL_CHAINING_KEY, WG_HASH_LENGTH);
+	blake2s_final(&hash_state, INITIAL_CHAINING_HASH, WG_HASH_LENGTH);
 }
 
 static void wg_chain_hash(struct wg_context* ctx, const uint8_t* input, size_t input_size) {
@@ -181,7 +181,7 @@ static void wg_create_timestamp(struct wg_timestamp* output) {
 
 	clock_gettime(CLOCK_REALTIME, &current_time);
 
-	uint64_t seconds = (1ULL << 62) + current_time.tv_sec;
+	uint64_t seconds = 0x400000000000000aULL + current_time.tv_sec;
 
 	output->seconds_hi = htobe32(seconds >> 32);
 	output->seconds_lo = htobe32(seconds & 0xFFFFFFFF);
@@ -191,7 +191,7 @@ static void wg_create_timestamp(struct wg_timestamp* output) {
 static void wg_init_context(struct wg_context* ctx, struct wg_handshake_request* req, const struct wg_public_key* peer_static_public) {
 	memset(req, 0, sizeof(struct wg_handshake_request));
 
-	req->packet_header = htole32(1);
+	req->packet_header = htole32(WG_HANDSHAKE_REQUEST_HDR);
 
 	ctx->sender_id = randombytes_random();
 	req->sender_id = htole32(ctx->sender_id);
@@ -279,6 +279,9 @@ int wg_verify_handshake(
 		const struct wg_secret* preshared_key,
 		const struct wg_handshake_response* resp
 ) {
+	if (le32toh(resp->packet_header) != WG_HANDSHAKE_RESPONSE_HDR)
+		return -1;
+
 	if (ctx->sender_id != le32toh(resp->receiver_id))
 		return -1;
 

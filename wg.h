@@ -4,6 +4,9 @@
 #include <stdalign.h>
 #include <stdint.h>
 
+#define WG_HANDSHAKE_REQUEST_HDR  1
+#define WG_HANDSHAKE_RESPONSE_HDR 2
+
 #define WG_PRIVATE_KEY_LENGTH   32
 #define WG_PUBLIC_KEY_LENGTH    32
 #define WG_SHARED_SECRET_LENGTH	32
