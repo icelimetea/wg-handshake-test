@@ -41,7 +41,6 @@ struct wg_kdf_key {
 	alignas(SIMD_ALIGNMENT) uint8_t	material[WG_HASH_LENGTH + 1];
 };
 
-
 struct wg_context {
 	uint32_t			sender_id;
 
