@@ -126,6 +126,26 @@ static void wg_chain_kdf_block(const struct wg_context* ctx, const struct wg_kdf
 	output->material[WG_HASH_LENGTH] = input->material[WG_HASH_LENGTH] + 1;
 }
 
+static void wg_init_context(struct wg_context* ctx, struct wg_handshake_request* req, const struct wg_public_key* peer_static_public) {
+	memset(req, 0, sizeof(struct wg_handshake_request));
+
+	req->packet_header = htole32(WG_HANDSHAKE_REQUEST_HDR);
+
+	ctx->sender_id = randombytes_random();
+	req->sender_id = htole32(ctx->sender_id);
+
+	randombytes_buf(ctx->own_ephemeral_private.material, WG_PRIVATE_KEY_LENGTH);
+	crypto_scalarmult_base(req->msg_ephemeral, ctx->own_ephemeral_private.material);
+
+	memcpy(ctx->chaining_hash, INITIAL_CHAINING_HASH, WG_HASH_LENGTH);
+	memcpy(ctx->chaining_key.material, INITIAL_CHAINING_KEY, WG_HASH_LENGTH);
+
+	wg_chain_hash(ctx, peer_static_public->material, WG_PUBLIC_KEY_LENGTH);
+
+	wg_chain_kdf(ctx, req->msg_ephemeral, WG_PUBLIC_KEY_LENGTH);
+	wg_chain_hash(ctx, req->msg_ephemeral, WG_PUBLIC_KEY_LENGTH);
+}
+
 static int wg_derive_dh_secret(const struct wg_private_key* private_key, const struct wg_public_key* public_key, struct wg_secret* secret) {
 	return crypto_scalarmult(secret->material, private_key->material, public_key->material);
 }
@@ -219,26 +239,6 @@ static void wg_create_timestamp(struct wg_timestamp* output) {
 	output->seconds_hi = htobe32(seconds >> 32);
 	output->seconds_lo = htobe32(seconds & 0xFFFFFFFF);
 	output->nanos = htobe32(current_time.tv_nsec & 0xFF000000);
-}
-
-static void wg_init_context(struct wg_context* ctx, struct wg_handshake_request* req, const struct wg_public_key* peer_static_public) {
-	memset(req, 0, sizeof(struct wg_handshake_request));
-
-	req->packet_header = htole32(WG_HANDSHAKE_REQUEST_HDR);
-
-	ctx->sender_id = randombytes_random();
-	req->sender_id = htole32(ctx->sender_id);
-
-	randombytes_buf(ctx->own_ephemeral_private.material, WG_PRIVATE_KEY_LENGTH);
-	crypto_scalarmult_base(req->msg_ephemeral, ctx->own_ephemeral_private.material);
-
-	memcpy(ctx->chaining_hash, INITIAL_CHAINING_HASH, WG_HASH_LENGTH);
-	memcpy(ctx->chaining_key.material, INITIAL_CHAINING_KEY, WG_HASH_LENGTH);
-
-	wg_chain_hash(ctx, peer_static_public->material, WG_PUBLIC_KEY_LENGTH);
-
-	wg_chain_kdf(ctx, req->msg_ephemeral, WG_PUBLIC_KEY_LENGTH);
-	wg_chain_hash(ctx, req->msg_ephemeral, WG_PUBLIC_KEY_LENGTH);
 }
 
 int wg_init(void) {
