@@ -45,8 +45,6 @@ struct wg_context {
 	uint32_t			sender_id;
 
 	struct wg_private_key		own_ephemeral_private;
-	struct wg_secret		dh_secret1;
-	struct wg_secret		dh_secret2;
 
 	alignas(SIMD_ALIGNMENT) uint8_t	key_ipad[WG_HASH_BLOCK_LENGTH + 1];
 	alignas(SIMD_ALIGNMENT) uint8_t	key_opad[WG_HASH_BLOCK_LENGTH];
@@ -54,8 +52,13 @@ struct wg_context {
 	alignas(SIMD_ALIGNMENT) uint8_t	chaining_hash[WG_HASH_LENGTH];
 	struct wg_kdf_key		chaining_key;
 
-	struct wg_kdf_key		temporary_key;
-	struct wg_kdf_key		encryption_key;
+	struct {
+		struct wg_secret	dh_secret1;
+		struct wg_secret	dh_secret2;
+
+		struct wg_kdf_key	temporary_key;
+		struct wg_kdf_key	encryption_key;
+	} scratchpad;
 };
 
 struct __attribute__((packed)) wg_nonce {
