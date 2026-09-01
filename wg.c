@@ -147,8 +147,10 @@ static void wg_aead_encrypt(
 		const struct wg_kdf_key* key, uint64_t counter,
 		const uint8_t* plaintext, size_t plaintext_size,
 		const uint8_t* authtext, size_t authtext_size,
-		uint8_t* ciphertext, unsigned long long ciphertext_size
+		uint8_t* ciphertext, size_t ciphertext_size
 ) {
+	unsigned long long output_size = ciphertext_size;
+
 	struct wg_nonce nonce = {
 		.zero = 0,
 		.counter_lo = htole32(counter & 0xFFFFFFFF),
@@ -156,7 +158,7 @@ static void wg_aead_encrypt(
 	};
 
 	crypto_aead_chacha20poly1305_ietf_encrypt(
-			ciphertext, &ciphertext_size,
+			ciphertext, &output_size,
 			plaintext, plaintext_size,
 			authtext, authtext_size,
 			NULL,
@@ -166,10 +168,12 @@ static void wg_aead_encrypt(
 
 static int wg_aead_decrypt(
 		const struct wg_kdf_key* key, uint64_t counter,
-		uint8_t* plaintext, unsigned long long plaintext_size,
+		const uint8_t* ciphertext, size_t ciphertext_size,
 		const uint8_t* authtext, size_t authtext_size,
-		const uint8_t* ciphertext, size_t ciphertext_size
+		uint8_t* plaintext, size_t plaintext_size
 ) {
+	unsigned long long output_size = plaintext_size;
+
 	struct wg_nonce nonce = {
 		.zero = 0,
 		.counter_lo = htole32(counter & 0xFFFFFFFF),
@@ -177,7 +181,7 @@ static int wg_aead_decrypt(
 	};
 
 	return crypto_aead_chacha20poly1305_ietf_decrypt(
-			plaintext, &plaintext_size,
+			plaintext, &output_size,
 			NULL,
 			ciphertext, ciphertext_size,
 			authtext, authtext_size,
@@ -187,7 +191,7 @@ static int wg_aead_decrypt(
 
 // MAC
 
-static void wg_compute_mac1(const struct wg_public_key* public_key, struct wg_handshake_request* req) {
+static void wg_compute_mac1(struct wg_handshake_request* req, const struct wg_public_key* public_key) {
 	blake2s_state hash_state;
 
 	uint8_t mac_key[WG_HASH_LENGTH];
@@ -202,7 +206,7 @@ static void wg_compute_mac1(const struct wg_public_key* public_key, struct wg_ha
 	blake2s_final(&hash_state, req->mac1, WG_MAC_LENGTH);
 }
 
-static int wg_verify_mac1(const struct wg_public_key* public_key, const struct wg_handshake_response* resp) {
+static int wg_verify_mac1(const struct wg_handshake_response* resp, const struct wg_public_key* public_key) {
 	blake2s_state hash_state;
 
 	uint8_t mac_key[WG_HASH_LENGTH];
@@ -239,16 +243,16 @@ static int wg_parse_base64(const char* input, uint8_t* output, size_t output_siz
 	return 0;
 }
 
-static void wg_create_timestamp(struct wg_timestamp* output) {
+static void wg_create_timestamp(struct wg_timestamp* timestamp) {
 	struct timespec current_time;
 
 	clock_gettime(CLOCK_REALTIME, &current_time);
 
 	uint64_t seconds = 0x400000000000000aULL + current_time.tv_sec;
 
-	output->seconds_hi = htobe32(seconds >> 32);
-	output->seconds_lo = htobe32(seconds & 0xFFFFFFFF);
-	output->nanos = htobe32(current_time.tv_nsec & 0xFF000000);
+	timestamp->seconds_hi = htobe32(seconds >> 32);
+	timestamp->seconds_lo = htobe32(seconds & 0xFFFFFFFF);
+	timestamp->nanos = htobe32(current_time.tv_nsec & 0xFF000000);
 }
 
 // Public API
@@ -281,10 +285,13 @@ int wg_create_handshake(
 
 	wg_init_context(ctx, req, peer_static_public);
 
-	// Mixing static key
-
 	if (wg_derive_dh_secret(&ctx->own_ephemeral_private, peer_static_public, &ctx->scratchpad.dh_secret1))
 		return ERROR_DH_FAILURE;
+
+	if (wg_derive_dh_secret(         own_static_private, peer_static_public, &ctx->scratchpad.dh_secret2))
+		return ERROR_DH_FAILURE;
+
+	// Mixing static key
 
 	wg_chain_kdf(ctx, (const uint8_t*) &ctx->scratchpad.dh_secret1, WG_SHARED_SECRET_LENGTH);
 	wg_chain_kdf_block(ctx, &ctx->chaining_key, &ctx->scratchpad.encryption_key);
@@ -299,9 +306,6 @@ int wg_create_handshake(
 	wg_chain_hash(ctx, req->msg_static, AEAD_LENGTH(WG_PUBLIC_KEY_LENGTH));
 
 	// Mixing timestamp
-
-	if (wg_derive_dh_secret(own_static_private, peer_static_public, &ctx->scratchpad.dh_secret2))
-		return ERROR_DH_FAILURE;
 
 	wg_chain_kdf(ctx, (const uint8_t*) &ctx->scratchpad.dh_secret2, WG_SHARED_SECRET_LENGTH);
 	wg_chain_kdf_block(ctx, &ctx->chaining_key, &ctx->scratchpad.encryption_key);
@@ -319,7 +323,7 @@ int wg_create_handshake(
 
 	// Compute MAC1
 
-	wg_compute_mac1(peer_static_public, req);
+	wg_compute_mac1(req, peer_static_public);
 
 	return 0;
 }
@@ -337,13 +341,13 @@ int wg_verify_handshake(
 	if (le32toh(resp->receiver_id) != ctx->sender_id)
 		return ERROR_NOT_WG_PACKET;
 
-	if (wg_verify_mac1(own_static_public, resp))
+	if (wg_verify_mac1(resp, own_static_public))
 		return ERROR_NOT_WG_PACKET;
 
 	if (wg_derive_dh_secret_from_reply(&ctx->own_ephemeral_private, resp, &ctx->scratchpad.dh_secret1))
 		return ERROR_DH_FAILURE;
 
-	if (wg_derive_dh_secret_from_reply(own_static_private, resp, &ctx->scratchpad.dh_secret2))
+	if (wg_derive_dh_secret_from_reply(         own_static_private, resp, &ctx->scratchpad.dh_secret2))
 		return ERROR_DH_FAILURE;
 
 	wg_chain_kdf(ctx, resp->msg_ephemeral, WG_PUBLIC_KEY_LENGTH);
@@ -353,16 +357,16 @@ int wg_verify_handshake(
 	wg_chain_kdf(ctx, (const uint8_t*) &ctx->scratchpad.dh_secret2, WG_SHARED_SECRET_LENGTH);
 
 	wg_chain_kdf(ctx, (const uint8_t*) preshared_key, WG_SHARED_SECRET_LENGTH);
-	wg_chain_kdf_block(ctx, &ctx->chaining_key, &ctx->scratchpad.temporary_key);
+	wg_chain_kdf_block(ctx,             &ctx->chaining_key, &ctx->scratchpad.temporary_key);
 	wg_chain_kdf_block(ctx, &ctx->scratchpad.temporary_key, &ctx->scratchpad.encryption_key);
 
 	wg_chain_hash(ctx, (const uint8_t*) &ctx->scratchpad.temporary_key, WG_HASH_LENGTH);
 
 	int err = wg_aead_decrypt(
 			&ctx->scratchpad.encryption_key, 0,
-			NULL, 0,
+			resp->msg_empty, AEAD_LENGTH(0),
 			ctx->chaining_hash, WG_HASH_LENGTH,
-			resp->msg_empty, AEAD_LENGTH(0)
+			NULL, 0
 	);
 
 	wg_chain_hash(ctx, resp->msg_empty, AEAD_LENGTH(0));

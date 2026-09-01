@@ -1,19 +1,25 @@
 #include "wg.h"
+#include "log.h"
+#include "utils.h"
 
 #include <string.h>
 #include <stdlib.h>
-#include <stdio.h>
+#include <errno.h>
+#include <time.h>
 
-#include <sys/types.h>
 #include <sys/socket.h>
+#include <unistd.h>
 #include <netdb.h>
+#include <fcntl.h>
 
 struct wg_iface_options {
 	struct wg_private_key	private_key;
+	struct wg_public_key	public_key;
 };
 
 struct wg_peer_options {
 	struct wg_public_key	public_key;
+	struct wg_secret	preshared_key;
 
 	socklen_t		addr_len;
 	struct sockaddr_storage	addr_buf;
@@ -24,38 +30,6 @@ struct program_options {
 	int max_timeout;
 };
 
-static int resolve_udp_address(const char* host, const char* port, socklen_t* addr_len, struct sockaddr_storage* addr_buf) {
-	struct addrinfo hints = {
-		.ai_family = AF_UNSPEC,
-		.ai_socktype = SOCK_DGRAM,
-		.ai_protocol = IPPROTO_UDP
-	};
-
-	struct addrinfo* result;
-
-	int err = getaddrinfo(host, port, &hints, &result);
-
-	if (err) return err;
-
-	*addr_len = result->ai_addrlen;
-	memcpy(addr_buf, result->ai_addr, result->ai_addrlen);
-
-	freeaddrinfo(result);
-
-	return 0;
-}
-
-static int get_env_option(const char* desc, const char* name, const char** value) {
-	*value = getenv(name);
-
-	if (*value == NULL) {
-		printf("%s (%s) is not specified\n", desc, name);
-		return -1;
-	}
-
-	return 0;
-}
-
 static int get_wg_iface_from_env(struct wg_iface_options* wg_iface) {
 	const char* wg_iface_privkey_b64;
 
@@ -63,9 +37,11 @@ static int get_wg_iface_from_env(struct wg_iface_options* wg_iface) {
 		return -1;
 
 	if (wg_parse_private_key(wg_iface_privkey_b64, &wg_iface->private_key)) {
-		printf("Failed to decode WG interface's private key\n");
+		LOG_ERROR("Failed to decode WG interface's private key");
 		return -1;
 	}
+
+	wg_derive_public_key(&wg_iface->private_key, &wg_iface->public_key);
 
 	return 0;
 }
@@ -84,17 +60,15 @@ static int get_wg_peer_from_env(struct wg_peer_options* wg_peer) {
 	if (get_env_option("WG peer's public key", "WG_PUBKEY", &wg_peer_pubkey_b64))
 		return -1;
 
-	int err = resolve_udp_address(wg_peer_host, wg_peer_port, &wg_peer->addr_len, &wg_peer->addr_buf);
-
-	if (err) {
-		printf("Cannot resolve address: %s\n", gai_strerror(err));
+	if (resolve_udp_address(wg_peer_host, wg_peer_port, &wg_peer->addr_len, &wg_peer->addr_buf))
 		return -1;
-	}
 
 	if (wg_parse_public_key(wg_peer_pubkey_b64, &wg_peer->public_key)) {
-		printf("Failed to decode WG peer's public key\n");
+		LOG_ERROR("Failed to decode WG peer's public key");
 		return -1;
 	}
+
+	memset(&wg_peer->preshared_key, 0, WG_SHARED_SECRET_LENGTH);
 
 	return 0;
 }
@@ -113,36 +87,148 @@ static int get_program_options_from_env(struct program_options* options) {
 	options->max_timeout = atoi(max_timeout_value);
 
 	if (options->min_timeout <= 0 || options->max_timeout <= 0) {
-		printf("Invalid timeout value\n");
+		LOG_ERROR("Invalid timeout value");
 		return -1;
 	}
 
 	if (options->min_timeout >= options->max_timeout) {
-		printf("Minimum timeout should be smaller than the max timeout\n");
+		LOG_ERROR("Minimum timeout should be smaller than the max timeout");
 		return -1;
 	}
 
 	return 0;
 }
 
-int main(void) {
-	if (wg_init()) {
-		printf("Failed to initialize cryptography library\n");
-		return 1;
+int do_wg_probing(
+		struct wg_context* ctxs,
+		const struct wg_iface_options* wg_iface,
+		const struct wg_peer_options* wg_peer,
+		int probing_delay,
+		const int* sockets,
+		size_t sockets_count
+) {
+	struct timespec sleep_time;
+	clock_gettime(CLOCK_REALTIME, &sleep_time);
+
+	for (size_t cnt = sockets_count; cnt > 0; cnt--) {
+		// TODO: Send garbage
+
+		sleep_time.tv_nsec += 500000000;
+
+		sleep_time.tv_sec += sleep_time.tv_nsec / 1000000000;
+		sleep_time.tv_nsec = sleep_time.tv_nsec % 1000000000;
+
+		clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &sleep_time, NULL);
 	}
 
-	struct wg_iface_options wg_iface;
-	struct wg_peer_options wg_peer;
-	struct program_options options;
+	sleep_time.tv_sec += probing_delay;
+	clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &sleep_time, NULL);
 
-	if (get_wg_iface_from_env(&wg_iface))
-		return 1;
+	for (size_t idx = 0; idx < sockets_count; idx++) {
+		struct wg_handshake_request req;
 
-	if (get_wg_peer_from_env(&wg_peer))
-		return 1;
+		if (wg_create_handshake(&ctxs[idx], &wg_iface->private_key, &wg_iface->public_key, &wg_peer->public_key, &req)) {
+			LOG_ERROR("Unable to create a WG handshake");
+			return -1;
+		}
 
-	if (get_program_options_from_env(&options))
-		return 1;
+		if (write(sockets[idx], &req, sizeof(struct wg_handshake_request)) < 0) {
+			LOG_ERROR("Unable to write a WG handshake to a socket");
+			return -1;
+		}
+
+		sleep_time.tv_nsec += 500000000;
+
+		sleep_time.tv_sec += sleep_time.tv_nsec / 1000000000;
+		sleep_time.tv_nsec = sleep_time.tv_nsec % 1000000000;
+
+		clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &sleep_time, NULL);
+	}
+
+	for (size_t idx = 0; idx < sockets_count; idx++) {
+		struct wg_handshake_response resp;
+
+		ssize_t resp_size = read(sockets[idx], &resp, sizeof(struct wg_handshake_response));
+
+		if (resp_size < 0) {
+			LOG_INFO("FAILURE,%s", strerror(errno));
+		} else if (resp_size != sizeof(struct wg_handshake_response)) {
+			LOG_INFO("FAILURE,Response is too small to be a WG handshake message");
+		} else if (wg_verify_handshake(&ctxs[idx], &wg_iface->private_key, &wg_iface->public_key, &wg_peer->preshared_key, &resp)) {
+			LOG_INFO("FAILURE,Fake handshake response");
+		} else {
+			LOG_INFO("SUCCESS,");
+		}
+	}
 
 	return 0;
+}
+
+int main(void) {
+	struct wg_iface_options	wg_iface;
+	struct wg_peer_options	wg_peer;
+	struct program_options	options;
+
+	size_t			sockets_count = 0;
+	int*			sockets = NULL;
+	struct wg_context*	ctxs = NULL;
+
+	int err = 0;
+
+	if (wg_init()) {
+		LOG_ERROR("Failed to initialize cryptography library");
+		goto error;
+	}
+
+	if (get_wg_iface_from_env(&wg_iface))
+		goto error;
+
+	if (get_wg_peer_from_env(&wg_peer))
+		goto error;
+
+	if (get_program_options_from_env(&options))
+		goto error;
+
+	sockets_count = (size_t) (options.max_timeout - options.min_timeout);
+	sockets = malloc(sockets_count * sizeof(int));
+	ctxs = malloc(sockets_count * sizeof(struct wg_context));
+
+	if (sockets == NULL || ctxs == NULL)  {
+		LOG_ERROR("Failed to allocate memory");
+		goto error;
+	}
+
+	memset(sockets, -1, sockets_count * sizeof(int));
+
+	for (size_t idx = 0; idx < sockets_count; idx++) {
+		sockets[idx] = socket(wg_peer.addr_buf.ss_family, SOCK_DGRAM, IPPROTO_UDP);
+
+		if (sockets[idx] < 0 || connect(sockets[idx], (const struct sockaddr*) &wg_peer.addr_buf, wg_peer.addr_len) < 0) {
+			LOG_ERROR("Unable to create a socket: %s", strerror(errno));
+			goto error;
+		}
+
+		int socket_flags = fcntl(sockets[idx], F_GETFL);
+
+		if (socket_flags < 0 || fcntl(sockets[idx], F_SETFL, socket_flags | O_NONBLOCK) < 0) {
+			LOG_ERROR("Unable to manipulate socket flags: %s", strerror(errno));
+			goto error;
+		}
+	}
+
+	if (do_wg_probing(ctxs, &wg_iface, &wg_peer, options.min_timeout, sockets, sockets_count))
+		goto error;
+end:
+	if (sockets != NULL) {
+		for (size_t idx = 0; idx < sockets_count; idx++)
+			close(sockets[idx]);
+	}
+
+	free(sockets);
+	free(ctxs);
+
+	return err;
+error:
+	err = 1;
+	goto end;
 }
