@@ -1,7 +1,6 @@
 #ifndef _WG_H
 #define _WG_H
 
-#include <stdalign.h>
 #include <stdint.h>
 
 #define WG_HANDSHAKE_REQUEST_HDR  1
