@@ -111,7 +111,7 @@ static void wg_chain_kdf_block(const struct wg_context* ctx, const struct wg_kdf
 	output->material[WG_HASH_LENGTH] = input->material[WG_HASH_LENGTH] + 1;
 }
 
-static void wg_init_context(struct wg_context* ctx, struct wg_handshake_request* req, const struct wg_public_key* peer_static_public) {
+static void wg_init_context(const struct wg_public_key* peer_static_public, struct wg_context* ctx, struct wg_handshake_request* req) {
 	memset(req, 0, sizeof(struct wg_handshake_request));
 
 	req->packet_header = htole32(WG_HANDSHAKE_REQUEST_HDR);
@@ -283,7 +283,7 @@ int wg_create_handshake(
 ) {
 	struct wg_timestamp timestamp;
 
-	wg_init_context(ctx, req, peer_static_public);
+	wg_init_context(peer_static_public, ctx, req);
 
 	if (wg_derive_dh_secret(&ctx->own_ephemeral_private, peer_static_public, &ctx->scratchpad.dh_secret1))
 		return ERROR_DH_FAILURE;
