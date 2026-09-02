@@ -102,8 +102,11 @@ int wg_init(void);
 
 int wg_parse_private_key(const char* input, struct wg_private_key* output);
 int wg_parse_public_key(const char* input, struct wg_public_key* output);
+int wg_parse_preshared_key(const char* input, struct wg_secret* output);
 
 void wg_derive_public_key(const struct wg_private_key* private_key, struct wg_public_key* public_key);
+
+void wg_null_preshared_key(struct wg_secret* preshared_key);
 
 int wg_create_handshake(
 		struct wg_context* ctx,

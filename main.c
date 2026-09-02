@@ -51,6 +51,7 @@ static int get_wg_peer_from_env(struct wg_peer_options* wg_peer) {
 	const char* wg_peer_host;
 	const char* wg_peer_port;
 	const char* wg_peer_pubkey_b64;
+	const char* wg_peer_psk_b64 = getenv("WG_PRESHARED_KEY");
 
 	if (get_env_option("WG peer's host", "WG_HOST", &wg_peer_host))
 		return -1;
@@ -69,7 +70,15 @@ static int get_wg_peer_from_env(struct wg_peer_options* wg_peer) {
 		return -1;
 	}
 
-	memset(&wg_peer->preshared_key, 0, WG_SHARED_SECRET_LENGTH);
+	if (wg_peer_psk_b64 == NULL) {
+		wg_null_preshared_key(&wg_peer->preshared_key);
+		return 0;
+	}
+
+	if (wg_parse_preshared_key(wg_peer_psk_b64, &wg_peer->preshared_key)) {
+		LOG_ERROR("Failed to decode WG peer's preshared key");
+		return -1;
+	}
 
 	return 0;
 }

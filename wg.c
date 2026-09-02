@@ -270,8 +270,16 @@ int wg_parse_public_key(const char* input, struct wg_public_key* output) {
 	return wg_parse_base64(input, output->material, WG_PUBLIC_KEY_LENGTH);
 }
 
+int wg_parse_preshared_key(const char* input, struct wg_secret* output) {
+	return wg_parse_base64(input, output->material, WG_SHARED_SECRET_LENGTH);
+}
+
 void wg_derive_public_key(const struct wg_private_key* private_key, struct wg_public_key* public_key) {
 	crypto_scalarmult_base(public_key->material, private_key->material);
+}
+
+void wg_null_preshared_key(struct wg_secret* preshared_key) {
+	memset(preshared_key->material, 0, WG_SHARED_SECRET_LENGTH);
 }
 
 int wg_create_handshake(
