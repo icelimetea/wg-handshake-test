@@ -3,6 +3,7 @@
 #include "utils.h"
 
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -101,11 +102,11 @@ static int get_program_options_from_env(struct program_options* options) {
 }
 
 static int do_wg_probing(
-		struct wg_context* ctxs,
-		const struct wg_iface_options* wg_iface,
-		const struct wg_peer_options* wg_peer,
+		struct wg_context* contexts,
 		const int* sockets,
 		size_t sockets_count,
+		const struct wg_iface_options* wg_iface,
+		const struct wg_peer_options* wg_peer,
 		int probing_delay
 ) {
 	struct timespec sleep_time;
@@ -128,7 +129,7 @@ static int do_wg_probing(
 	for (size_t idx = 0; idx < sockets_count; idx++) {
 		struct wg_handshake_request req;
 
-		if (wg_create_handshake(&ctxs[idx], &wg_iface->private_key, &wg_iface->public_key, &wg_peer->public_key, &req)) {
+		if (wg_create_handshake(&contexts[idx], &wg_iface->private_key, &wg_iface->public_key, &wg_peer->public_key, &req)) {
 			LOG_ERROR("Unable to create a WG handshake");
 			return -1;
 		}
@@ -155,7 +156,7 @@ static int do_wg_probing(
 			LOG_INFO("FAILURE,%s", strerror(errno));
 		} else if (resp_size != sizeof(struct wg_handshake_response)) {
 			LOG_INFO("FAILURE,Response is too small to be a WG handshake message");
-		} else if (wg_verify_handshake(&ctxs[idx], &wg_iface->private_key, &wg_iface->public_key, &wg_peer->preshared_key, &resp)) {
+		} else if (wg_verify_handshake(&contexts[idx], &wg_iface->private_key, &wg_iface->public_key, &wg_peer->preshared_key, &resp)) {
 			LOG_INFO("FAILURE,Fake handshake response");
 		} else {
 			LOG_INFO("SUCCESS,");
@@ -172,7 +173,7 @@ int main(void) {
 
 	size_t			sockets_count = 0;
 	int*			sockets = NULL;
-	struct wg_context*	ctxs = NULL;
+	struct wg_context*	contexts = NULL;
 
 	int err = 0;
 
@@ -192,9 +193,9 @@ int main(void) {
 
 	sockets_count = (size_t) (options.max_timeout - options.min_timeout);
 	sockets = malloc(sockets_count * sizeof(int));
-	ctxs = malloc(sockets_count * sizeof(struct wg_context));
+	contexts = malloc(sockets_count * sizeof(struct wg_context));
 
-	if (sockets == NULL || ctxs == NULL)  {
+	if (sockets == NULL || contexts == NULL)  {
 		LOG_ERROR("Failed to allocate memory");
 		goto error;
 	}
@@ -217,7 +218,7 @@ int main(void) {
 		}
 	}
 
-	if (do_wg_probing(ctxs, &wg_iface, &wg_peer, sockets, sockets_count, options.min_timeout))
+	if (do_wg_probing(contexts, sockets, sockets_count, &wg_iface, &wg_peer, options.min_timeout))
 		goto error;
 end:
 	if (sockets != NULL) {
@@ -226,7 +227,7 @@ end:
 	}
 
 	free(sockets);
-	free(ctxs);
+	free(contexts);
 
 	return err;
 error:
