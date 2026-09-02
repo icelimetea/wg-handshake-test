@@ -104,9 +104,9 @@ int do_wg_probing(
 		struct wg_context* ctxs,
 		const struct wg_iface_options* wg_iface,
 		const struct wg_peer_options* wg_peer,
-		int probing_delay,
 		const int* sockets,
-		size_t sockets_count
+		size_t sockets_count,
+		int probing_delay
 ) {
 	struct timespec sleep_time;
 	clock_gettime(CLOCK_REALTIME, &sleep_time);
@@ -217,7 +217,7 @@ int main(void) {
 		}
 	}
 
-	if (do_wg_probing(ctxs, &wg_iface, &wg_peer, options.min_timeout, sockets, sockets_count))
+	if (do_wg_probing(ctxs, &wg_iface, &wg_peer, sockets, sockets_count, options.min_timeout))
 		goto error;
 end:
 	if (sockets != NULL) {
