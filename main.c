@@ -221,8 +221,10 @@ int main(void) {
 		goto error;
 end:
 	if (sockets != NULL) {
-		for (size_t idx = 0; idx < sockets_count; idx++)
-			close(sockets[idx]);
+		for (size_t idx = 0; idx < sockets_count; idx++) {
+			if (sockets[idx] >= 0)
+				close(sockets[idx]);
+		}
 	}
 
 	free(sockets);
