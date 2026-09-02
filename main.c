@@ -100,7 +100,7 @@ static int get_program_options_from_env(struct program_options* options) {
 	return 0;
 }
 
-int do_wg_probing(
+static int do_wg_probing(
 		struct wg_context* ctxs,
 		const struct wg_iface_options* wg_iface,
 		const struct wg_peer_options* wg_peer,
