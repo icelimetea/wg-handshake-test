@@ -4,6 +4,7 @@
 #include "log.h"
 
 #include <stddef.h>
+#include <limits.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -86,23 +87,23 @@ static int get_wg_peer_from_env(struct wg_peer_options* wg_peer) {
 	return 0;
 }
 
-static int get_program_options_from_env(struct program_options* options) {
-	const char* min_timeout_value;
-	const char* max_timeout_value;
+static int get_program_options_from_args(int argc, const char** argv, struct program_options* options) {
+	if (argc != 3) {
+		LOG_ERROR("Usage: %s [min_timeout] [max_timeout]", argv[0]);
+		return -1;
+	};
 
-	if (get_env_option("Minimum handshake timeout to test", "MIN_TIMEOUT", &min_timeout_value))
+	long min_timeout;
+	long max_timeout;
+
+	if (parse_long("Minimum timeout", argv[1], 1, INT_MAX, &min_timeout))
 		return -1;
 
-	if (get_env_option("Maximum handshake timeout to test", "MAX_TIMEOUT", &max_timeout_value))
+	if (parse_long("Maximum timeout", argv[2], 1, INT_MAX, &max_timeout))
 		return -1;
 
-	options->min_timeout = atoi(min_timeout_value);
-	options->max_timeout = atoi(max_timeout_value);
-
-	if (options->min_timeout <= 0 || options->max_timeout <= 0) {
-		LOG_ERROR("Invalid timeout value");
-		return -1;
-	}
+	options->min_timeout = (int) min_timeout;
+	options->max_timeout = (int) max_timeout;
 
 	if (options->min_timeout >= options->max_timeout) {
 		LOG_ERROR("Minimum timeout should be smaller than the max timeout");
@@ -110,6 +111,35 @@ static int get_program_options_from_env(struct program_options* options) {
 	}
 
 	return 0;
+}
+
+static int setup_sockets(const struct sockaddr* socket_addr, socklen_t addr_len, int* sockets, size_t sockets_count) {
+	for (size_t idx = 0; idx < sockets_count; idx++) {
+		sockets[idx] = socket(socket_addr->sa_family, SOCK_DGRAM, IPPROTO_UDP);
+
+		if (sockets[idx] < 0 || connect(sockets[idx], socket_addr, addr_len) < 0) {
+			LOG_ERROR("Unable to create a socket: %s", strerror(errno));
+			return -1;
+		}
+
+		int socket_flags = fcntl(sockets[idx], F_GETFL);
+
+		if (socket_flags < 0 || fcntl(sockets[idx], F_SETFL, socket_flags | O_NONBLOCK) < 0) {
+			LOG_ERROR("Unable to manipulate socket flags: %s", strerror(errno));
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+static void close_sockets(const int* sockets, size_t sockets_count) {
+	if (sockets == NULL)
+		return;
+
+	for (size_t idx = 0; idx < sockets_count; idx++)
+		if (sockets[idx] >= 0)
+			close(sockets[idx]);
 }
 
 static int do_wg_probing(
@@ -127,10 +157,10 @@ static int do_wg_probing(
 			return -1;
 		}
 
-		sleep_time.tv_nsec += 500000000;
+		sleep_time.tv_nsec += NANOS_PER_SECOND / 2;
 
-		sleep_time.tv_sec += sleep_time.tv_nsec / 1000000000;
-		sleep_time.tv_nsec = sleep_time.tv_nsec % 1000000000;
+		sleep_time.tv_sec += sleep_time.tv_nsec / NANOS_PER_SECOND;
+		sleep_time.tv_nsec = sleep_time.tv_nsec % NANOS_PER_SECOND;
 
 		clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &sleep_time, NULL);
 	}
@@ -151,10 +181,10 @@ static int do_wg_probing(
 			return -1;
 		}
 
-		sleep_time.tv_nsec += 500000000;
+		sleep_time.tv_nsec += NANOS_PER_SECOND / 2;
 
-		sleep_time.tv_sec += sleep_time.tv_nsec / 1000000000;
-		sleep_time.tv_nsec = sleep_time.tv_nsec % 1000000000;
+		sleep_time.tv_sec += sleep_time.tv_nsec / NANOS_PER_SECOND;
+		sleep_time.tv_nsec = sleep_time.tv_nsec % NANOS_PER_SECOND;
 
 		clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &sleep_time, NULL);
 	}
@@ -178,7 +208,7 @@ static int do_wg_probing(
 	return 0;
 }
 
-int main(void) {
+int main(int argc, const char** argv) {
 	struct wg_iface_options	wg_iface;
 	struct wg_peer_options	wg_peer;
 	struct program_options	options;
@@ -200,7 +230,7 @@ int main(void) {
 	if (get_wg_peer_from_env(&wg_peer))
 		goto error;
 
-	if (get_program_options_from_env(&options))
+	if (get_program_options_from_args(argc, argv, &options))
 		goto error;
 
 	sockets_count = (size_t) (options.max_timeout - options.min_timeout);
@@ -219,31 +249,15 @@ int main(void) {
 		goto error;
 	}
 
-	for (size_t idx = 0; idx < sockets_count; idx++) {
-		sockets[idx] = socket(wg_peer.addr_buf.ss_family, SOCK_DGRAM, IPPROTO_UDP);
+	memset(contexts, 0, sockets_count * sizeof(struct wg_context));
 
-		if (sockets[idx] < 0 || connect(sockets[idx], (const struct sockaddr*) &wg_peer.addr_buf, wg_peer.addr_len) < 0) {
-			LOG_ERROR("Unable to create a socket: %s", strerror(errno));
-			goto error;
-		}
-
-		int socket_flags = fcntl(sockets[idx], F_GETFL);
-
-		if (socket_flags < 0 || fcntl(sockets[idx], F_SETFL, socket_flags | O_NONBLOCK) < 0) {
-			LOG_ERROR("Unable to manipulate socket flags: %s", strerror(errno));
-			goto error;
-		}
-	}
+	if (setup_sockets((const struct sockaddr*) &wg_peer.addr_buf, wg_peer.addr_len, sockets, sockets_count))
+		goto error;
 
 	if (do_wg_probing(contexts, sockets, sockets_count, &wg_iface, &wg_peer, options.min_timeout))
 		goto error;
 end:
-	if (sockets != NULL) {
-		for (size_t idx = 0; idx < sockets_count; idx++) {
-			if (sockets[idx] >= 0)
-				close(sockets[idx]);
-		}
-	}
+	close_sockets(sockets, sockets_count);
 
 	free(sockets);
 	free(contexts);

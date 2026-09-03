@@ -3,9 +3,35 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #include <sys/socket.h>
 #include <netdb.h>
+
+int parse_long(const char* desc, const char* input, long min_value, long max_value, long* output) {
+	char* input_end;
+
+	long value = strtol(input, &input_end, 10);
+
+	if (input == input_end) {
+		LOG_ERROR("%s is specified as an invalid string", desc);
+		return -1;
+	}
+
+	if (errno == ERANGE || value < min_value || value > max_value) {
+		LOG_ERROR("%s value is out of range", desc);
+		return -1;
+	}
+
+	if (*input_end != '\0') {
+		LOG_ERROR("%s value contains garbage characters", desc);
+		return -1;
+	}
+
+	*output = value;
+
+	return 0;
+}
 
 int get_env_option(const char* desc, const char* name, const char** value) {
 	*value = getenv(name);

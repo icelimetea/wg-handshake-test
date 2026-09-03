@@ -25,6 +25,16 @@ static const uint8_t LABEL_MAC1[8] = {
 static uint8_t INITIAL_CHAINING_HASH[WG_HASH_LENGTH];
 static uint8_t INITIAL_CHAINING_KEY[WG_HASH_LENGTH];
 
+enum wg_tai64n_constants {
+	TAI64N_EPOCH	= 0x400000000000000aULL,
+	TAI64N_NS_MASK	= 0xFF000000UL
+};
+
+enum wg_hmac_constants {
+	HMAC_IPAD_CONSTANT = 0x36,
+	HMAC_OPAD_CONSTANT = 0x5C
+};
+
 // Chaining KDF and chaining hash management
 
 static void wg_init_constants(void) {
@@ -54,8 +64,8 @@ static void wg_chain_kdf(struct wg_context* ctx, const uint8_t* input, size_t in
 
 	// HKDF extraction step
 
-	memset(ctx->key_ipad, 0x36, WG_HASH_BLOCK_LENGTH);
-	memset(ctx->key_opad, 0x5C, WG_HASH_BLOCK_LENGTH);
+	memset(ctx->key_ipad, HMAC_IPAD_CONSTANT, WG_HASH_BLOCK_LENGTH);
+	memset(ctx->key_opad, HMAC_OPAD_CONSTANT, WG_HASH_BLOCK_LENGTH);
 
 	for (size_t idx = 0; idx < WG_HASH_LENGTH; idx++) {
 		ctx->key_ipad[idx] ^= ctx->chaining_key.material[idx];
@@ -74,8 +84,8 @@ static void wg_chain_kdf(struct wg_context* ctx, const uint8_t* input, size_t in
 
 	// HKDF expansion step
 
-	memset(ctx->key_ipad, 0x36, WG_HASH_BLOCK_LENGTH);
-	memset(ctx->key_opad, 0x5C, WG_HASH_BLOCK_LENGTH);
+	memset(ctx->key_ipad, HMAC_IPAD_CONSTANT, WG_HASH_BLOCK_LENGTH);
+	memset(ctx->key_opad, HMAC_OPAD_CONSTANT, WG_HASH_BLOCK_LENGTH);
 
 	for (size_t idx = 0; idx < WG_HASH_LENGTH; idx++) {
 		ctx->key_ipad[idx] ^= ctx->chaining_key.material[idx];
@@ -249,11 +259,11 @@ static void wg_create_timestamp(struct wg_timestamp* timestamp) {
 
 	clock_gettime(CLOCK_REALTIME, &current_time);
 
-	uint64_t seconds = 0x400000000000000aULL + current_time.tv_sec;
+	uint64_t seconds = TAI64N_EPOCH + current_time.tv_sec;
 
 	timestamp->seconds_hi = htobe32(seconds >> 32);
 	timestamp->seconds_lo = htobe32(seconds & 0xFFFFFFFF);
-	timestamp->nanos = htobe32(current_time.tv_nsec & 0xFF000000);
+	timestamp->nanos = htobe32(current_time.tv_nsec & TAI64N_NS_MASK);
 }
 
 // Public API
