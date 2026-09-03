@@ -1,6 +1,7 @@
 #include "wg.h"
-#include "log.h"
 #include "utils.h"
+#include "garbage.h"
+#include "log.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -110,9 +111,7 @@ static int get_program_options_from_env(struct program_options* options) {
 }
 
 static int do_wg_probing(
-		struct wg_context* contexts,
-		const int* sockets,
-		size_t sockets_count,
+		struct wg_context* contexts, const int* sockets, size_t sockets_count,
 		const struct wg_iface_options* wg_iface,
 		const struct wg_peer_options* wg_peer,
 		int probing_delay
@@ -121,7 +120,10 @@ static int do_wg_probing(
 	clock_gettime(CLOCK_REALTIME, &sleep_time);
 
 	for (size_t cnt = sockets_count; cnt > 0; cnt--) {
-		// TODO: Send garbage
+		if (writev(sockets[cnt - 1], &GARBAGE_PACKETS[cnt % GARBAGE_PACKETS_COUNT], 1) < 0) {
+			LOG_ERROR("Unable to send a garbage packet");
+			return -1;
+		}
 
 		sleep_time.tv_nsec += 500000000;
 
