@@ -202,7 +202,7 @@ static void wg_compute_mac1(struct wg_handshake_request* req, const struct wg_pu
 	blake2s_final(&hash_state, mac_key, WG_HASH_LENGTH);
 
 	blake2s_init_key(&hash_state, WG_MAC_LENGTH, mac_key, WG_HASH_LENGTH);
-	blake2s_update(&hash_state, (const uint8_t*) req, sizeof(struct wg_handshake_request) - 2 * WG_MAC_LENGTH);
+	blake2s_update(&hash_state, (const uint8_t*) req, sizeof(struct wg_handshake_request) - 2UL * WG_MAC_LENGTH);
 	blake2s_final(&hash_state, req->mac1, WG_MAC_LENGTH);
 }
 
@@ -218,7 +218,7 @@ static int wg_verify_mac1(const struct wg_handshake_response* resp, const struct
 	blake2s_final(&hash_state, mac_key, WG_HASH_LENGTH);
 
 	blake2s_init_key(&hash_state, WG_MAC_LENGTH, mac_key, WG_HASH_LENGTH);
-	blake2s_update(&hash_state, (const uint8_t*) resp, sizeof(struct wg_handshake_response) - 2 * WG_MAC_LENGTH);
+	blake2s_update(&hash_state, (const uint8_t*) resp, sizeof(struct wg_handshake_response) - 2UL * WG_MAC_LENGTH);
 	blake2s_final(&hash_state, packet_mac1, WG_MAC_LENGTH);
 
 	return sodium_memcmp(packet_mac1, resp->mac1, WG_MAC_LENGTH);

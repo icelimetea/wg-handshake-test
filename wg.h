@@ -1,28 +1,34 @@
-#ifndef _WG_H
-#define _WG_H
+#ifndef WG_H
+#define WG_H
 
 #include <stdint.h>
 
-#define WG_HANDSHAKE_REQUEST_HDR  1
-#define WG_HANDSHAKE_RESPONSE_HDR 2
+#define AEAD_LENGTH(plaintext_size) ((plaintext_size) + 16)
 
-#define WG_PRIVATE_KEY_LENGTH   32
-#define WG_PUBLIC_KEY_LENGTH    32
-#define WG_SHARED_SECRET_LENGTH	32
-#define WG_HASH_BLOCK_LENGTH    64
-#define WG_HASH_LENGTH          32
-#define WG_MAC_LENGTH           16
-#define WG_TIMESTAMP_LENGTH     12
+enum wg_headers {
+	WG_HANDSHAKE_REQUEST_HDR	= 1UL,
+	WG_HANDSHAKE_RESPONSE_HDR	= 2UL
+};
 
-#define SIMD_ALIGNMENT 32
+enum wg_errors {
+	ERROR_CRYPTO_INIT_FAILED	= -1,
+	ERROR_NOT_WG_PACKET		= -2,
+	ERROR_WG_PACKET_AUTH_FAILED	= -3,
+	ERROR_DH_FAILURE		= -4,
+	ERROR_WRONG_BASE64		= -5
+};
 
-#define AEAD_LENGTH(plaintext_size) (plaintext_size + 16)
+enum wg_structures_sizes {
+	SIMD_ALIGNMENT		= 32UL,
 
-#define ERROR_CRYPTO_INIT_FAILED    -1
-#define ERROR_NOT_WG_PACKET         -2
-#define ERROR_WG_PACKET_AUTH_FAILED -3
-#define ERROR_DH_FAILURE            -4
-#define ERROR_WRONG_BASE64          -5
+	WG_PRIVATE_KEY_LENGTH	= 32UL,
+	WG_PUBLIC_KEY_LENGTH	= 32UL,
+	WG_SHARED_SECRET_LENGTH	= 32UL,
+	WG_HASH_BLOCK_LENGTH	= 64UL,
+	WG_HASH_LENGTH		= 32UL,
+	WG_MAC_LENGTH		= 16UL,
+	WG_TIMESTAMP_LENGTH	= 12UL
+};
 
 struct wg_private_key {
 	alignas(SIMD_ALIGNMENT) uint8_t	material[WG_PRIVATE_KEY_LENGTH];
@@ -41,15 +47,15 @@ struct wg_kdf_key {
 };
 
 struct wg_context {
-	uint32_t			sender_id;
-
 	struct wg_private_key		own_ephemeral_private;
-
-	alignas(SIMD_ALIGNMENT) uint8_t	key_ipad[WG_HASH_BLOCK_LENGTH + 1];
-	alignas(SIMD_ALIGNMENT) uint8_t	key_opad[WG_HASH_BLOCK_LENGTH];
 
 	alignas(SIMD_ALIGNMENT) uint8_t	chaining_hash[WG_HASH_LENGTH];
 	struct wg_kdf_key		chaining_key;
+
+	alignas(SIMD_ALIGNMENT) uint8_t	key_opad[WG_HASH_BLOCK_LENGTH];
+	alignas(SIMD_ALIGNMENT) uint8_t	key_ipad[WG_HASH_BLOCK_LENGTH + 1];
+
+	uint32_t			sender_id;
 
 	struct {
 		struct wg_secret	dh_secret1;

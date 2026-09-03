@@ -205,12 +205,17 @@ int main(void) {
 	sockets = malloc(sockets_count * sizeof(int));
 	contexts = malloc(sockets_count * sizeof(struct wg_context));
 
-	if (sockets == NULL || contexts == NULL)  {
+	if (sockets == NULL)  {
 		LOG_ERROR("Failed to allocate memory");
 		goto error;
 	}
 
 	memset(sockets, -1, sockets_count * sizeof(int));
+
+	if (contexts == NULL) {
+		LOG_ERROR("Failed to allocate memory");
+		goto error;
+	}
 
 	for (size_t idx = 0; idx < sockets_count; idx++) {
 		sockets[idx] = socket(wg_peer.addr_buf.ss_family, SOCK_DGRAM, IPPROTO_UDP);

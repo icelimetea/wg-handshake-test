@@ -1,4 +1,6 @@
-CFLAGS+=-Wall -Wextra -Wpedantic -Werror -std=gnu23
+C_STANDARD=gnu23
+
+CFLAGS+=-Wall -Wextra -Wpedantic -Werror -std=${C_STANDARD}
 LDFLAGS+=-lsodium -lb2
 
 OBJS=main.o\
@@ -20,3 +22,7 @@ utils.o: utils.c utils.h log.h
 .PHONY: clean
 clean:
 	rm -f wgtest ${OBJS}
+
+.PHONY: lint
+lint:
+	clang-tidy --extra-arg=-std=${C_STANDARD} *.c *.h

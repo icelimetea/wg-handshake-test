@@ -1,5 +1,5 @@
-#ifndef _GARBAGE_H
-#define _GARBAGE_H
+#ifndef GARBAGE_H
+#define GARBAGE_H
 
 #include <stdint.h>
 #include <sys/uio.h>
