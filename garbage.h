@@ -1,6 +1,7 @@
 #ifndef GARBAGE_H
 #define GARBAGE_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include <sys/uio.h>
 

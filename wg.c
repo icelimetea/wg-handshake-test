@@ -1,6 +1,7 @@
 #include "wg.h"
 
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 #include <time.h>
 

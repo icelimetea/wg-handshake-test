@@ -9,9 +9,11 @@
 #include <errno.h>
 #include <time.h>
 
+#include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/uio.h>
+#include <netinet/in.h>
 #include <unistd.h>
-#include <netdb.h>
 #include <fcntl.h>
 
 struct wg_iface_options {
