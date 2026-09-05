@@ -83,6 +83,6 @@ const struct iovec GARBAGE_PACKETS[] = {
 	{ .iov_base = (void*) DNS15, .iov_len = sizeof(DNS15) }
 };
 
-const size_t GARBAGE_PACKETS_COUNT = sizeof(GARBAGE_PACKETS);
+const size_t GARBAGE_PACKETS_COUNT = sizeof(GARBAGE_PACKETS) / sizeof(struct iovec);
 
 #endif
