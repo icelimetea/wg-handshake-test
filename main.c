@@ -19,6 +19,10 @@
 
 #include <sodium.h>
 
+enum test_parameters {
+	DNS_QUERIES_PER_PORT = 4
+};
+
 enum {
 	TEST_DOMAINS_COUNT = 14
 };
@@ -202,25 +206,27 @@ static int do_wg_probing(
 	clock_gettime(CLOCK_REALTIME, &sleep_time);
 
 	for (size_t cnt = socket_count; cnt > 0; cnt--) {
-		struct dns_header dns_header;
-		fakedns_init_dns_header(1, &dns_header);
+		for (int queries = 0; queries < DNS_QUERIES_PER_PORT; queries++) {
+			struct dns_header dns_header;
+			fakedns_init_dns_header(1, &dns_header);
 
-		const struct iovec dns_query[] = {
-			{ .iov_base = &dns_header, .iov_len = sizeof(struct dns_header) },
-			fake_queries[randombytes_uniform(query_count)]
-		};
+			const struct iovec dns_query[] = {
+				{ .iov_base = &dns_header, .iov_len = sizeof(struct dns_header) },
+				fake_queries[randombytes_uniform(query_count)]
+			};
 
-		if (writev(sockets[cnt - 1], dns_query, 2) < 0) {
-			LOG_ERROR("Unable to send a garbage packet");
-			return -1;
+			if (writev(sockets[cnt - 1], dns_query, 2) < 0) {
+				LOG_ERROR("Unable to send a garbage packet");
+				return -1;
+			}
+
+			sleep_time.tv_nsec += NANOS_PER_SECOND / (DNS_QUERIES_PER_PORT + 1);
+
+			sleep_time.tv_sec += sleep_time.tv_nsec / NANOS_PER_SECOND;
+			sleep_time.tv_nsec = sleep_time.tv_nsec % NANOS_PER_SECOND;
+
+			clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &sleep_time, NULL);
 		}
-
-		sleep_time.tv_nsec += NANOS_PER_SECOND / 2;
-
-		sleep_time.tv_sec += sleep_time.tv_nsec / NANOS_PER_SECOND;
-		sleep_time.tv_nsec = sleep_time.tv_nsec % NANOS_PER_SECOND;
-
-		clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &sleep_time, NULL);
 	}
 
 	sleep_time.tv_sec += probing_delay;
@@ -239,7 +245,7 @@ static int do_wg_probing(
 			return -1;
 		}
 
-		sleep_time.tv_nsec += NANOS_PER_SECOND / 2;
+		sleep_time.tv_nsec += NANOS_PER_SECOND / (DNS_QUERIES_PER_PORT + 1);
 
 		sleep_time.tv_sec += sleep_time.tv_nsec / NANOS_PER_SECOND;
 		sleep_time.tv_nsec = sleep_time.tv_nsec % NANOS_PER_SECOND;
