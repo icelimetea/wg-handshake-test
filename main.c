@@ -12,6 +12,7 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -19,10 +20,10 @@
 #include <sodium.h>
 
 enum {
-	BEAUTIFUL_DOMAINS_COUNT = 14
+	TEST_DOMAINS_COUNT = 14
 };
 
-static const char* BEAUTIFUL_DOMAINS[BEAUTIFUL_DOMAINS_COUNT] = {
+static const char* TEST_DOMAINS[TEST_DOMAINS_COUNT] = {
 	"www.gosuslugi.ru",
 	"dom.gosuslugi.ru",
 	"www.nalog.gov.ru",
@@ -135,8 +136,32 @@ static int get_program_options_from_args(int argc, const char** argv, struct pro
 	return 0;
 }
 
-static int setup_sockets(const struct sockaddr* socket_addr, socklen_t addr_len, int* sockets, size_t sockets_count) {
-	for (size_t idx = 0; idx < sockets_count; idx++) {
+static int setup_queries(const char** domains, size_t domain_count, struct iovec* dns_queries) {
+	for (size_t idx = 0; idx < domain_count; idx++) {
+		const char* domain = domains[idx];
+		size_t domain_length = strlen(domain);
+
+		size_t query_size = fakedns_dns_query_record_size(domain, domain_length);
+
+		dns_queries[idx].iov_base = malloc(query_size);
+		dns_queries[idx].iov_len = query_size;
+
+		if (dns_queries[idx].iov_base == NULL)
+			return -1;
+
+		fakedns_init_dns_query_record(domain, domain_length, dns_queries[idx].iov_base);
+	}
+
+	return 0;
+}
+
+static void free_queries(struct iovec* dns_queries, size_t query_count) {
+	for (size_t idx = 0; idx < query_count; idx++)
+		free(dns_queries[idx].iov_base);
+}
+
+static int setup_sockets(const struct sockaddr* socket_addr, socklen_t addr_len, int* sockets, size_t socket_count) {
+	for (size_t idx = 0; idx < socket_count; idx++) {
 		sockets[idx] = socket(socket_addr->sa_family, SOCK_DGRAM, IPPROTO_UDP);
 
 		if (sockets[idx] < 0 || connect(sockets[idx], socket_addr, addr_len) < 0) {
@@ -155,17 +180,18 @@ static int setup_sockets(const struct sockaddr* socket_addr, socklen_t addr_len,
 	return 0;
 }
 
-static void close_sockets(const int* sockets, size_t sockets_count) {
+static void close_sockets(const int* sockets, size_t socket_count) {
 	if (sockets == NULL)
 		return;
 
-	for (size_t idx = 0; idx < sockets_count; idx++)
+	for (size_t idx = 0; idx < socket_count; idx++)
 		if (sockets[idx] >= 0)
 			close(sockets[idx]);
 }
 
 static int do_wg_probing(
-		struct wg_context* contexts, const int* sockets, size_t sockets_count,
+		struct wg_context* contexts, const int* sockets, size_t socket_count,
+		const struct iovec* fake_queries, size_t query_count,
 		const struct wg_iface_options* wg_iface,
 		const struct wg_peer_options* wg_peer,
 		int probing_delay
@@ -173,21 +199,19 @@ static int do_wg_probing(
 	struct timespec sleep_time;
 	clock_gettime(CLOCK_REALTIME, &sleep_time);
 
-	for (size_t cnt = sockets_count; cnt > 0; cnt--) {
-		const char* domain_name = BEAUTIFUL_DOMAINS[randombytes_uniform(BEAUTIFUL_DOMAINS_COUNT)];
-		size_t domain_name_length = strlen(domain_name);
+	for (size_t cnt = socket_count; cnt > 0; cnt--) {
+		struct dns_header dns_header;
+		fakedns_init_dns_header(1, &dns_header);
 
-		size_t dns_query_size = fakedns_dns_query_size(domain_name, domain_name_length);
-		uint8_t* dns_query_buf = malloc(dns_query_size);
+		const struct iovec dns_query[] = {
+			{ .iov_base = &dns_header, .iov_len = sizeof(struct dns_header) },
+			fake_queries[randombytes_uniform(query_count)]
+		};
 
-		fakedns_init_dns_query(domain_name, domain_name_length, dns_query_buf);
-
-		if (write(sockets[cnt - 1], dns_query_buf, dns_query_size) < 0) {
+		if (writev(sockets[cnt - 1], dns_query, 2) < 0) {
 			LOG_ERROR("Unable to send a garbage packet");
 			return -1;
 		}
-
-		free(dns_query_buf);
 
 		sleep_time.tv_nsec += NANOS_PER_SECOND / 2;
 
@@ -200,7 +224,7 @@ static int do_wg_probing(
 	sleep_time.tv_sec += probing_delay;
 	clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &sleep_time, NULL);
 
-	for (size_t idx = 0; idx < sockets_count; idx++) {
+	for (size_t idx = 0; idx < socket_count; idx++) {
 		struct wg_handshake_request req;
 
 		if (wg_create_handshake(&contexts[idx], &wg_iface->private_key, &wg_iface->public_key, &wg_peer->public_key, &req)) {
@@ -221,7 +245,7 @@ static int do_wg_probing(
 		clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &sleep_time, NULL);
 	}
 
-	for (size_t idx = 0; idx < sockets_count; idx++) {
+	for (size_t idx = 0; idx < socket_count; idx++) {
 		struct wg_handshake_response resp;
 
 		ssize_t resp_size = read(sockets[idx], &resp, sizeof(struct wg_handshake_response));
@@ -245,9 +269,10 @@ int main(int argc, const char** argv) {
 	struct wg_peer_options	wg_peer;
 	struct program_options	options;
 
-	size_t			sockets_count = 0;
+	size_t			socket_count = 0;
 	int*			sockets = NULL;
 	struct wg_context*	contexts = NULL;
+	struct iovec		dns_queries[TEST_DOMAINS_COUNT] = {0};
 
 	int err = 0;
 
@@ -267,32 +292,37 @@ int main(int argc, const char** argv) {
 	if (get_program_options_from_args(argc, argv, &options))
 		goto error;
 
-	sockets_count = (size_t) (options.max_timeout - options.min_timeout);
-	sockets = malloc(sockets_count * sizeof(int));
-	contexts = wg_allocate_contexts(sockets_count);
+	socket_count = (size_t) (options.max_timeout - options.min_timeout);
+	sockets = malloc(socket_count * sizeof(int));
+	contexts = wg_allocate_contexts(socket_count);
 
 	if (sockets == NULL)  {
 		LOG_ERROR("Failed to allocate memory");
 		goto error;
 	}
 
-	memset(sockets, -1, sockets_count * sizeof(int));
+	memset(sockets, -1, socket_count * sizeof(int));
 
 	if (contexts == NULL) {
 		LOG_ERROR("Failed to allocate memory");
 		goto error;
 	}
 
-	if (setup_sockets((const struct sockaddr*) &wg_peer.addr_buf, wg_peer.addr_len, sockets, sockets_count))
+	if (setup_queries(TEST_DOMAINS, TEST_DOMAINS_COUNT, dns_queries))
 		goto error;
 
-	if (do_wg_probing(contexts, sockets, sockets_count, &wg_iface, &wg_peer, options.min_timeout))
+	if (setup_sockets((const struct sockaddr*) &wg_peer.addr_buf, wg_peer.addr_len, sockets, socket_count))
+		goto error;
+
+	if (do_wg_probing(contexts, sockets, socket_count, dns_queries, TEST_DOMAINS_COUNT, &wg_iface, &wg_peer, options.min_timeout))
 		goto error;
 end:
-	close_sockets(sockets, sockets_count);
+	close_sockets(sockets, socket_count);
 
 	free(sockets);
 	wg_free_contexts(contexts);
+
+	free_queries(dns_queries, TEST_DOMAINS_COUNT);
 
 	return err;
 error:
