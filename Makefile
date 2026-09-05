@@ -5,16 +5,20 @@ LDFLAGS+=-lsodium -lb2
 
 OBJS=main.o\
      wg.o\
+     fakedns.o\
      utils.o
 
 wgtest: ${OBJS}
 	${CC} ${CFLAGS} ${LDFLAGS} -o wgtest ${OBJS}
 
-main.o: main.c wg.h utils.h garbage.h log.h
+main.o: main.c wg.h utils.h fakedns.h log.h
 	${CC} ${CFLAGS} -c -o main.o main.c
 
 wg.o: wg.c wg.h
 	${CC} ${CFLAGS} -c -o wg.o wg.c
+
+fakedns.o: fakedns.c fakedns.h
+	${CC} ${CFLAGS} -c -o fakedns.o fakedns.c
 
 utils.o: utils.c utils.h log.h
 	${CC} ${CFLAGS} -c -o utils.o utils.c

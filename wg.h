@@ -12,11 +12,10 @@ enum wg_headers {
 };
 
 enum wg_errors {
-	ERROR_CRYPTO_INIT_FAILED	= -1,
-	ERROR_NOT_WG_PACKET		= -2,
-	ERROR_WG_PACKET_AUTH_FAILED	= -3,
-	ERROR_DH_FAILURE		= -4,
-	ERROR_WRONG_BASE64		= -5
+	ERROR_NOT_WG_PACKET		= -1,
+	ERROR_WG_PACKET_AUTH_FAILED	= -2,
+	ERROR_DH_FAILURE		= -3,
+	ERROR_WRONG_BASE64		= -4
 };
 
 enum wg_structures_sizes {
@@ -106,7 +105,7 @@ struct __attribute__((packed)) wg_handshake_response {
 	uint8_t mac2[WG_MAC_LENGTH];
 };
 
-int wg_init(void);
+void wg_init(void);
 
 int wg_parse_private_key(const char* input, struct wg_private_key* output);
 int wg_parse_public_key(const char* input, struct wg_public_key* output);

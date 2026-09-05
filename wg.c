@@ -5,10 +5,10 @@
 #include <string.h>
 #include <time.h>
 
+#include <endian.h>
+
 #include <sodium.h>
 #include <blake2.h>
-
-#include <endian.h>
 
 static const uint8_t CONSTRUCTION[37] = {
 	'N', 'o', 'i', 's', 'e', '_', 'I', 'K', 'p', 's', 'k', '2', '_', '2', '5', '5', '1', '9', '_', 'C', 'h', 'a', 'C', 'h', 'a', 'P', 'o', 'l', 'y', '_', 'B', 'L', 'A', 'K', 'E', '2', 's'
@@ -268,9 +268,8 @@ static void wg_create_timestamp(struct wg_timestamp* timestamp) {
 
 // Public API
 
-int wg_init(void) {
+void wg_init(void) {
 	wg_init_constants();
-	return sodium_init() < 0 ? ERROR_CRYPTO_INIT_FAILED : 0;
 }
 
 int wg_parse_private_key(const char* input, struct wg_private_key* output) {

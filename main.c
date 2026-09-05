@@ -1,6 +1,6 @@
 #include "wg.h"
 #include "utils.h"
-#include "garbage.h"
+#include "fakedns.h"
 #include "log.h"
 
 #include <stddef.h>
@@ -12,10 +12,32 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/uio.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <fcntl.h>
+
+#include <sodium.h>
+
+enum {
+	BEAUTIFUL_DOMAINS_COUNT = 14
+};
+
+static const char* BEAUTIFUL_DOMAINS[BEAUTIFUL_DOMAINS_COUNT] = {
+	"www.gosuslugi.ru",
+	"dom.gosuslugi.ru",
+	"www.nalog.gov.ru",
+	"www.mtsbank.ru",
+	"alfabank.ru",
+	"rutube.ru",
+	"vk.com",
+	"ok.ru",
+	"max.ru",
+	"dzen.ru",
+	"ya.ru",
+	"www.avito.ru",
+	"www.ozon.ru",
+	"www.wildberries.ru"
+};
 
 struct wg_iface_options {
 	struct wg_private_key	private_key;
@@ -152,10 +174,20 @@ static int do_wg_probing(
 	clock_gettime(CLOCK_REALTIME, &sleep_time);
 
 	for (size_t cnt = sockets_count; cnt > 0; cnt--) {
-		if (writev(sockets[cnt - 1], &GARBAGE_PACKETS[cnt % GARBAGE_PACKETS_COUNT], 1) < 0) {
+		const char* domain_name = BEAUTIFUL_DOMAINS[randombytes_uniform(BEAUTIFUL_DOMAINS_COUNT)];
+		size_t domain_name_length = strlen(domain_name);
+
+		size_t dns_query_size = fakedns_dns_query_size(domain_name, domain_name_length);
+		uint8_t* dns_query_buf = malloc(dns_query_size);
+
+		fakedns_init_dns_query(domain_name, domain_name_length, dns_query_buf);
+
+		if (write(sockets[cnt - 1], dns_query_buf, dns_query_size) < 0) {
 			LOG_ERROR("Unable to send a garbage packet");
 			return -1;
 		}
+
+		free(dns_query_buf);
 
 		sleep_time.tv_nsec += NANOS_PER_SECOND / 2;
 
@@ -219,10 +251,12 @@ int main(int argc, const char** argv) {
 
 	int err = 0;
 
-	if (wg_init()) {
+	if (sodium_init() < 0) {
 		LOG_ERROR("Failed to initialize cryptography library");
 		goto error;
 	}
+
+	wg_init();
 
 	if (get_wg_iface_from_env(&wg_iface))
 		goto error;
