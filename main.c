@@ -146,8 +146,10 @@ static int setup_queries(const char** domains, size_t domain_count, struct iovec
 		dns_queries[idx].iov_base = malloc(query_size);
 		dns_queries[idx].iov_len = query_size;
 
-		if (dns_queries[idx].iov_base == NULL)
+		if (dns_queries[idx].iov_base == NULL) {
+			LOG_ERROR("Failed to allocate memory for a DNS query");
 			return -1;
+		}
 
 		fakedns_init_dns_query_record(domain, domain_length, dns_queries[idx].iov_base);
 	}
