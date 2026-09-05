@@ -293,6 +293,14 @@ void wg_null_preshared_key(struct wg_secret* preshared_key) {
 	memset(preshared_key->material, 0, WG_SHARED_SECRET_LENGTH);
 }
 
+struct wg_context* wg_allocate_contexts(size_t count) {
+	return aligned_alloc(alignof(struct wg_context), count * sizeof(struct wg_context));
+}
+
+void wg_free_contexts(struct wg_context* contexts) {
+	free(contexts);
+}
+
 int wg_create_handshake(
 		struct wg_context* ctx,
 		const struct wg_private_key* own_static_private,

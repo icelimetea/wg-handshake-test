@@ -235,7 +235,7 @@ int main(int argc, const char** argv) {
 
 	sockets_count = (size_t) (options.max_timeout - options.min_timeout);
 	sockets = malloc(sockets_count * sizeof(int));
-	contexts = malloc(sockets_count * sizeof(struct wg_context));
+	contexts = wg_allocate_contexts(sockets_count);
 
 	if (sockets == NULL)  {
 		LOG_ERROR("Failed to allocate memory");
@@ -249,8 +249,6 @@ int main(int argc, const char** argv) {
 		goto error;
 	}
 
-	memset(contexts, 0, sockets_count * sizeof(struct wg_context));
-
 	if (setup_sockets((const struct sockaddr*) &wg_peer.addr_buf, wg_peer.addr_len, sockets, sockets_count))
 		goto error;
 
@@ -260,7 +258,7 @@ end:
 	close_sockets(sockets, sockets_count);
 
 	free(sockets);
-	free(contexts);
+	wg_free_contexts(contexts);
 
 	return err;
 error:

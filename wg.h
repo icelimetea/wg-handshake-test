@@ -1,6 +1,7 @@
 #ifndef WG_H
 #define WG_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #define AEAD_LENGTH(plaintext_size) ((plaintext_size) + 16)
@@ -31,15 +32,15 @@ enum wg_structures_sizes {
 };
 
 struct wg_private_key {
-	alignas(SIMD_ALIGNMENT) uint8_t	material[WG_PRIVATE_KEY_LENGTH];
+	uint8_t	material[WG_PRIVATE_KEY_LENGTH];
 };
 
 struct wg_public_key {
-	alignas(SIMD_ALIGNMENT) uint8_t	material[WG_PUBLIC_KEY_LENGTH];
+	uint8_t	material[WG_PUBLIC_KEY_LENGTH];
 };
 
 struct wg_secret {
-	alignas(SIMD_ALIGNMENT) uint8_t	material[WG_SHARED_SECRET_LENGTH];
+	uint8_t	material[WG_SHARED_SECRET_LENGTH];
 };
 
 struct wg_kdf_key {
@@ -47,6 +48,7 @@ struct wg_kdf_key {
 };
 
 struct wg_context {
+	alignas(SIMD_ALIGNMENT)
 	struct wg_private_key		own_ephemeral_private;
 
 	alignas(SIMD_ALIGNMENT) uint8_t	chaining_hash[WG_HASH_LENGTH];
@@ -113,6 +115,9 @@ int wg_parse_preshared_key(const char* input, struct wg_secret* output);
 void wg_derive_public_key(const struct wg_private_key* private_key, struct wg_public_key* public_key);
 
 void wg_null_preshared_key(struct wg_secret* preshared_key);
+
+struct wg_context* wg_allocate_contexts(size_t count);
+void wg_free_contexts(struct wg_context* contexts);
 
 int wg_create_handshake(
 		struct wg_context* ctx,
