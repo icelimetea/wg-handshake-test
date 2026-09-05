@@ -58,8 +58,8 @@ void fakedns_init_dns_query_record(const char* name, size_t name_length, uint8_t
 	query[write_idx] = 0;
 
 	struct dns_query_footer footer = {
-		.query_type = QUERY_TYPE_A,
-		.query_class = QUERY_CLASS_IN
+		.query_type	= htobe16(QUERY_TYPE_A),
+		.query_class	= htobe16(QUERY_CLASS_IN)
 	};
 
 	memcpy(&query[write_idx + 1], &footer, sizeof(struct dns_query_footer));
