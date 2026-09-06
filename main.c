@@ -19,15 +19,7 @@
 
 #include <sodium.h>
 
-enum test_parameters {
-	DNS_QUERIES_PER_PORT = 4
-};
-
-enum {
-	TEST_DOMAINS_COUNT = 14
-};
-
-static const char* TEST_DOMAINS[TEST_DOMAINS_COUNT] = {
+static const char* TEST_DOMAINS[] = {
 	"www.gosuslugi.ru",
 	"dom.gosuslugi.ru",
 	"www.nalog.gov.ru",
@@ -42,6 +34,14 @@ static const char* TEST_DOMAINS[TEST_DOMAINS_COUNT] = {
 	"www.avito.ru",
 	"www.ozon.ru",
 	"www.wildberries.ru"
+};
+
+enum {
+	TEST_DOMAINS_COUNT = sizeof(TEST_DOMAINS) / sizeof(const char*)
+};
+
+enum test_parameters {
+	DNS_QUERIES_PER_PORT = 4
 };
 
 struct wg_iface_options {
