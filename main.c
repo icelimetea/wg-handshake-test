@@ -206,7 +206,7 @@ static int do_wg_probing(
 	clock_gettime(CLOCK_REALTIME, &sleep_time);
 
 	for (size_t cnt = socket_count; cnt > 0; cnt--) {
-		for (int queries = 0; queries < DNS_QUERIES_PER_PORT; queries++) {
+		for (int query_idx = 0; query_idx < DNS_QUERIES_PER_PORT; query_idx++) {
 			struct dns_header dns_header;
 			fakedns_init_dns_header(1, &dns_header);
 
